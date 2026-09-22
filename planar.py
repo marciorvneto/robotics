@@ -12,8 +12,17 @@ class Point2:
         return (self.x - other.x)**2 + (self.y - other.y)**2
     def distTo(self, other):
         return np.sqrt(self.distToSqr(other))
+    def dot(self, other):
+        return self.x*other.x + self.y*other.y
     def norm(self):
         return self.distTo(Point2(0,0))
+    def rotate(self, theta):
+        c = np.cos(theta)
+        s = np.sin(theta)
+        return Point2(
+            c*self.x - s*self.y,
+            s*self.x + c*self.y
+        )
     def __sub__(self, other):
         return Point2(self.x - other.x, self.y - other.y)
     def __add__(self, other):
@@ -33,6 +42,82 @@ class Point2:
     def __repr__(self):
         return f"Point2({self.x:.2f}, {self.y:.2f})"
 
+class State:
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+
+    def wrap(self, angle):
+        return (angle + np.pi) % (2 * np.pi) - np.pi
+
+    def distToSqr(self, other):
+        return (self.x - other.x)**2 + (self.y - other.y)**2 + self.wrap(self.z - other.z)**2
+
+    def distToSqrLambda(self, other, lamb=1.0):
+        return (self.x - other.x)**2 + (self.y - other.y)**2 + lamb*self.wrap(self.z - other.z)**2
+
+    def distToLambda(self, other, lamb=1.0):
+        return np.sqrt(self.distToSqrLambda(other, lamb))
+
+    def distTo(self, other):
+        return np.sqrt(self.distToSqr(other))
+
+    def dot(self, other):
+        return self.x * other.x + self.y * other.y + self.z * other.z
+
+    def cross(self, other):
+        """Returns the cross product vector, crucial for 3D SAT edge-edge axes."""
+        return State(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x
+        )
+
+    def norm(self):
+        return self.distTo(State(0, 0, 0))
+
+    def rotateX(self, theta):
+        """Rotates the vector around the X-axis."""
+        c, s = np.cos(theta), np.sin(theta)
+        return State(self.x, c * self.y - s * self.z, s * self.y + c * self.z)
+
+    def rotateY(self, theta):
+        """Rotates the vector around the Y-axis."""
+        c, s = np.cos(theta), np.sin(theta)
+        return State(c * self.x + s * self.z, self.y, -s * self.x + c * self.z)
+
+    def rotateZ(self, theta):
+        """Rotates the vector around the Z-axis (equivalent to 2D rotation)."""
+        c, s = np.cos(theta), np.sin(theta)
+        return State(c * self.x - s * self.y, s * self.x + c * self.y, self.z)
+
+    def __sub__(self, other):
+        return State(self.x - other.x, self.y - other.y, self.z - other.z)
+
+    def __add__(self, other):
+        return State(self.x + other.x, self.y + other.y, self.z + other.z)
+
+    def __truediv__(self, scalar):
+        if scalar == 0:
+            raise ZeroDivisionError("Cannot divide a State by zero.")
+        return State(self.x / scalar, self.y / scalar, self.z / scalar)
+
+    def __mul__(self, scalar):
+        return State(self.x * scalar, self.y * scalar, self.z * scalar)
+
+    def __rmul__(self, scalar):
+        return self.__mul__(scalar)
+
+    def normalize(self):
+        n = self.norm()
+        if n == 0:
+            return State(0, 0, 0)
+        return State(self.x / n, self.y / n, self.z / n)
+
+    def __repr__(self):
+        return f"State({self.x:.2f}, {self.y:.2f}, {self.z:.2f})"
+
 
 class Rectangle:
     def __init__(self, x, y, w, h):
@@ -48,6 +133,38 @@ class Rectangle:
             return False
         return True
 
+class GeneralRectangle:
+    def __init__(self, state, w, h):
+        self.x = state.x
+        self.y = state.y
+        self.theta = state.z
+        self.w = w
+        self.h = h
+
+    @classmethod
+    def from_rectangle(cls, r):
+        return GeneralRectangle(State(r.x, r.y, 0.0), r.w, r.h)
+
+    def normals(self):
+        return [
+                Point2(np.cos(self.theta), np.sin(self.theta)),
+                Point2(-np.sin(self.theta), np.cos(self.theta)),
+        ]
+    def points(self):
+        origin = Point2(self.x, self.y)
+
+        local = [
+            Point2(0, 0),
+            Point2(self.w, 0),
+            Point2(self.w, self.h),
+            Point2(0, self.h),
+        ]
+
+        return [
+            origin + p.rotate(self.theta)
+            for p in local
+        ]
+
 class Path:
     def __init__(self, points):
         self.points = points
@@ -55,6 +172,22 @@ class Path:
 class Tree:
     def __init__(self, paths):
         self.paths = paths
+
+
+def sat_rects(r1, r2):
+    points_1 = r1.points()
+    points_2 = r2.points()
+    normals = [*r1.normals(), *r2.normals()]
+    for n in normals:
+        proj1 = [p.dot(n) for p in points_1]
+        proj2 = [p.dot(n) for p in points_2]
+        max1 = max(proj1)
+        min1 = min(proj1)
+        max2 = max(proj2)
+        min2 = min(proj2)
+        if max1 <= min2 or max2 <= min1:
+            return False
+    return True
 
 
 
@@ -67,7 +200,10 @@ class World:
         self.trees = []
         self.start = None
         self.end = None
+        self.bot = None
 
+    def add_bot(self, bot):
+        self.bot = bot
     def add_shape(self, shape):
         self.shapes.append(shape)
     def add_path(self, path):
@@ -79,9 +215,12 @@ class World:
     def add_end(self, end):
         self.end = end
 
-    def collides(self, p):
+    def collides(self, state):
+        # Assuming everything is a rectangle for now
+        gr = GeneralRectangle(state, self.bot.w, self.bot.h)
         for shape in self.shapes:
-            if shape.contains(p):
+            collision = sat_rects(gr, GeneralRectangle.from_rectangle(shape))
+            if collision:
                 return True
         return False
 
@@ -106,11 +245,22 @@ class World:
                 )
                 ax.add_patch(rect_patch)
 
-        if self.start:
-            ax.plot(self.start.x, self.start.y, 's', markersize=20, markeredgewidth=3, color='green')
-
         if self.end:
             ax.plot(self.end.x, self.end.y, 'x', markersize=20, markeredgewidth=3, color='red')
+
+        if self.bot:
+            shape = self.bot
+            rect_patch = patches.Rectangle(
+                (shape.x, shape.y),
+                shape.w,
+                shape.h,
+                angle=shape.theta * 180 / np.pi,
+                linewidth=1,
+                edgecolor="blue",
+                facecolor="blue",
+                alpha=0.3,
+            )
+            ax.add_patch(rect_patch)
 
         for tree in self.trees:
             for path in tree.paths:
@@ -124,16 +274,30 @@ class World:
 
             ax.plot(xs, ys, "-o", linewidth=2)
 
+             # Robot footprint along trajectory
+            for state in path.points:
+                rect = patches.Rectangle(
+                    (state.x, state.y),
+                    self.bot.w,
+                    self.bot.h,
+                    angle=np.degrees(state.z),
+                    linewidth=1,
+                    fill=False,
+                    alpha=0.3,
+                )
+                ax.add_patch(rect)
+
+
         plt.show()
 
 @dataclass
 class RRTParams:
     world: World
-    start: Point2
-    end: Point2
+    start: State
+    end: State
     tolerance: float
     max_step: float = 1e10
-    max_iter: int = 5000
+    max_iter: int = 7000
 
 class RRT:
     def __init__(self, params: RRTParams):
@@ -195,7 +359,8 @@ class RRT:
     def gen_random(self):
         rx = np.random.random() * self.params.world.w
         ry = np.random.random() * self.params.world.h
-        return Point2(rx, ry)
+        rtheta = np.random.random() * 2.0 * np.pi
+        return State(rx, ry, rtheta)
 
     def steer(self, src, dest):
         delta = dest - src
@@ -221,7 +386,7 @@ class RRT:
         best_dist2 = np.inf
         best_i = 0
         for i, other in enumerate(self.points):
-            dist2 = p.distToSqr(other)
+            dist2 = p.distToSqrLambda(other)
             if dist2 < best_dist2:
                 best_i = i
                 best_dist2 = dist2
@@ -231,19 +396,25 @@ class RRT:
 
 
 w = World(100, 100)
-start = Point2(30, 70)
-end = Point2(75, 70)
 
-w.add_shape(Rectangle(0, 0, 20, 30))
-w.add_shape(Rectangle(50, 50, 20, 30))
+start = State(30, 70, 70 * np.pi/180)
+end = State(75, 70, np.pi/2)
+bot = GeneralRectangle(start,15,3)
+
+
+w.add_bot(bot)
+w.add_shape(Rectangle(40, 5, 20, 100))
+w.add_shape(Rectangle(0, 0, 25, 30))
+w.add_shape(Rectangle(0, -10, 100, 10))
 w.add_start(start)
 w.add_end(end)
+# w.render()
 
 rrt = RRT(RRTParams(
     world=w,
     start=start,
     end=end,
-    tolerance=1.0,
+    tolerance=5.0,
     max_step=3.0
     ))
 
