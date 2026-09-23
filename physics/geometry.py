@@ -22,6 +22,8 @@ class Vec2:
         return self / self.norm()
     def dot(self, other):
         return self.x * other.x + self.y * other.y
+    def cross(self, other):
+        return self.x * other.y - self.y * other.x
     def dist_to(self, other):
         return (self - other).norm()
     def dist2_to(self, other):
@@ -35,6 +37,30 @@ class Vec2:
     def __repr__(self):
         return f"({self.x:.4f},{self.y:.4f})"
 
+class Mat2:
+    def __init__(self, rows):
+        self.rows=rows
+        assert(len(rows) == 2)
+        assert(len(rows[0]) == 2)
+        assert(len(rows[1]) == 2)
+    @classmethod
+    def rotation(cls, theta):
+        return Mat2([
+            [np.cos(theta),  -np.sin(theta)],
+            [np.sin(theta), np.cos(theta)],
+        ])
+    def __mul__(self, vector):
+        #  | a11 a12 |  
+        #  | a21 a22 |  
+        a11, a12 = self.rows[0]
+        a21, a22 = self.rows[1]
+        x = vector.x
+        y = vector.y
+        return Vec2(a11*x + a12*y, a21*x+a22*y)
+
+
 class Poly2:
     def __init__(self, points):
         self.points = points
+
+
