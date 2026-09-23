@@ -287,47 +287,72 @@ class World:
                 )
                 ax.add_patch(rect)
 
-                else:
-       plt.show()
+
+        plt.show()
 
 @dataclass
-class RRTParams:
+class RRTStarParams:
     world: World
     start: State
     end: State
     tolerance: float
     max_step: float = 1e10
     max_iter: int = 7000
-    p_goal: float = 0.25
+    neighborhood_radius: float = 20.0
 
-class RRT:
-    def __init__(self, params: RRTParams):
+class RRTStar:
+    def __init__(self, params: RRTStarParams):
         self.params = params
         self.points = []
         self.parents = []
+        self.costs = []
     def solve(self):
-        closest = self.params.start.distTo(self.params.end)
+        closest = self.params.start.distToLambda(self.params.end)
         closest_point_idx = 0
         iters = 0
 
         self.points = [self.params.start]
         self.parents = [-1]
+        self.costs = [0]
         while closest > self.params.tolerance and iters < self.params.max_iter:
-            r = np.random.random()
-            if r < self.params.p_goal:
-                guide = self.params.end
-            else:
-                guide = self.gen_random()
+            guide = self.gen_random()
             closest_idx = self.find_closest_idx(guide)
             candidate = self.steer(self.points[closest_idx],guide)
-            collides = self.test_collision_along_path(self.points[closest_idx],candidate)
-            if not collides:
+
+            neighbors = self.get_neighborhood(candidate)
+            if closest_idx not in neighbors:
+                neighbors.append(closest_idx)
+
+            best_cost = np.inf
+            best_parent_idx = None
+
+            for n_idx in neighbors:
+                cost = (
+                    self.costs[n_idx]
+                    + self.edge_cost(self.points[n_idx], candidate)
+                )
+
+                if cost >= best_cost:
+                    continue
+
+                if self.test_collision_along_path(self.points[n_idx], candidate):
+                    continue
+
+                best_cost = cost
+                best_parent_idx = n_idx
+
+            if best_parent_idx is not None:
                 self.points.append(candidate)
-                self.parents.append(closest_idx)
-                dist_to_end = candidate.distTo(self.params.end)
+                self.parents.append(best_parent_idx)
+                self.costs.append(best_cost)
+
+                new_idx = len(self.points) - 1
+
+                dist_to_end = candidate.distToLambda(self.params.end)
+
                 if dist_to_end < closest:
                     closest = dist_to_end
-                    closest_point_idx = len(self.points) - 1
+                    closest_point_idx = new_idx
             iters += 1
 
         # Assuming it converged, roll out the path by tracing back from the parents list
@@ -346,7 +371,13 @@ class RRT:
         rev_path.append(self.points[0])
         path = rev_path[::-1]
         return path
-        
+
+    def edge_cost(self, a, b):
+        return a.distToLambda(b)
+
+    def get_neighborhood(self, a):
+        r2 = self.params.neighborhood_radius**2
+        return [i for i,p in enumerate(self.points) if p.distToSqrLambda(a) < r2]
 
     def get_tree(self):
         paths = []
@@ -415,12 +446,13 @@ w.add_start(start)
 w.add_end(end)
 # w.render()
 
-rrt = RRT(RRTParams(
+rrt = RRTStar(RRTStarParams(
     world=w,
     start=start,
     end=end,
     tolerance=5.0,
-    max_step=3.0
+    max_step=3.0,
+    neighborhood_radius=3.0
     ))
 
 path = rrt.solve()
