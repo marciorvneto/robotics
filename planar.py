@@ -33,7 +33,6 @@ class Point2:
         return Point2(self.x / scalar, self.y / scalar)
     def __mul__(self, scalar):
         return Point2(self.x * scalar, self.y * scalar)
-
     def __rmul__(self, scalar):
         return self.__mul__(scalar)
     def normalize(self):
@@ -41,6 +40,7 @@ class Point2:
         return Point2(self.x/norm, self.y/norm)
     def __repr__(self):
         return f"Point2({self.x:.2f}, {self.y:.2f})"
+
 
 class State:
     def __init__(self, x, y, z):
@@ -133,6 +133,7 @@ class Rectangle:
             return False
         return True
 
+
 class GeneralRectangle:
     def __init__(self, state, w, h):
         self.x = state.x
@@ -147,8 +148,8 @@ class GeneralRectangle:
 
     def normals(self):
         return [
-                Point2(np.cos(self.theta), np.sin(self.theta)),
-                Point2(-np.sin(self.theta), np.cos(self.theta)),
+            Point2(np.cos(self.theta), np.sin(self.theta)),
+            Point2(-np.sin(self.theta), np.cos(self.theta)),
         ]
     def points(self):
         origin = Point2(self.x, self.y)
@@ -165,9 +166,11 @@ class GeneralRectangle:
             for p in local
         ]
 
+
 class Path:
     def __init__(self, points):
         self.points = points
+
 
 class Tree:
     def __init__(self, paths):
@@ -188,7 +191,6 @@ def sat_rects(r1, r2):
         if max1 <= min2 or max2 <= min1:
             return False
     return True
-
 
 
 class World:
@@ -274,7 +276,7 @@ class World:
 
             ax.plot(xs, ys, "-o", linewidth=2)
 
-             # Robot footprint along trajectory
+            # Robot footprint along trajectory
             for state in path.points:
                 rect = patches.Rectangle(
                     (state.x, state.y),
@@ -287,8 +289,8 @@ class World:
                 )
                 ax.add_patch(rect)
 
-                else:
-       plt.show()
+        plt.show()
+
 
 @dataclass
 class RRTParams:
@@ -300,11 +302,13 @@ class RRTParams:
     max_iter: int = 7000
     p_goal: float = 0.25
 
+
 class RRT:
     def __init__(self, params: RRTParams):
         self.params = params
         self.points = []
         self.parents = []
+        
     def solve(self):
         closest = self.params.start.distTo(self.params.end)
         closest_point_idx = 0
@@ -312,15 +316,18 @@ class RRT:
 
         self.points = [self.params.start]
         self.parents = [-1]
+        
         while closest > self.params.tolerance and iters < self.params.max_iter:
             r = np.random.random()
             if r < self.params.p_goal:
                 guide = self.params.end
             else:
                 guide = self.gen_random()
+                
             closest_idx = self.find_closest_idx(guide)
-            candidate = self.steer(self.points[closest_idx],guide)
-            collides = self.test_collision_along_path(self.points[closest_idx],candidate)
+            candidate = self.steer(self.points[closest_idx], guide)
+            collides = self.test_collision_along_path(self.points[closest_idx], candidate)
+            
             if not collides:
                 self.points.append(candidate)
                 self.parents.append(closest_idx)
@@ -331,7 +338,6 @@ class RRT:
             iters += 1
 
         # Assuming it converged, roll out the path by tracing back from the parents list
-
         if closest < self.params.tolerance:
             print("Converged!")
         else:
@@ -342,25 +348,22 @@ class RRT:
         while self.parents[point_idx] >= 0:
             rev_path.append(self.points[point_idx])
             point_idx = self.parents[point_idx]
+            
         # Now, push the first point
         rev_path.append(self.points[0])
         path = rev_path[::-1]
         return path
         
-
     def get_tree(self):
         paths = []
-
         for i in range(1, len(self.points)):
             parent_idx = self.parents[i]
             paths.append([
                 self.points[parent_idx],
                 self.points[i]
             ])
-
         return paths
                 
-
     def gen_random(self):
         rx = np.random.random() * self.params.world.w
         ry = np.random.random() * self.params.world.h
@@ -379,15 +382,14 @@ class RRT:
     def test_collision_along_path(self, src, dest, N=20):
         # Assuming src does not collide
         dv = (dest - src) / (1.0 * N)
-        for i in range(1,N+1):
+        for i in range(1, N+1):
             v_test = src + i * dv
             if self.params.world.collides(v_test):
                 return True
         return False
 
-
     def find_closest_idx(self, p):
-        # O(n2), might optimize later, but honestly... nah.
+        # O(n), might optimize later, but honestly... nah.
         best_dist2 = np.inf
         best_i = 0
         for i, other in enumerate(self.points):
@@ -398,14 +400,11 @@ class RRT:
         return best_i
 
 
-
-
 w = World(100, 100)
 
 start = State(30, 70, 70 * np.pi/180)
 end = State(75, 70, np.pi/2)
-bot = GeneralRectangle(start,15,3)
-
+bot = GeneralRectangle(start, 15, 3)
 
 w.add_bot(bot)
 w.add_shape(Rectangle(40, 5, 20, 100))
@@ -413,7 +412,6 @@ w.add_shape(Rectangle(0, 0, 25, 30))
 w.add_shape(Rectangle(0, -10, 100, 10))
 w.add_start(start)
 w.add_end(end)
-# w.render()
 
 rrt = RRT(RRTParams(
     world=w,
@@ -421,7 +419,7 @@ rrt = RRT(RRTParams(
     end=end,
     tolerance=5.0,
     max_step=3.0
-    ))
+))
 
 path = rrt.solve()
 w.add_path(path)
