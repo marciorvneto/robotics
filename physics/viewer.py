@@ -189,3 +189,71 @@ class Viewer:
             length_includes_head=True,
             head_width=0.05,
         )
+
+    def animate_plan(
+            self,
+            simulator,
+            set_state,
+            get_q0,
+            apply_u,
+            us,
+            num_steps,
+            xlim=None,
+            ylim=None,
+            interval=20,
+            ):
+        schedule = []
+        for u in us:
+            if u is None:
+                continue
+            schedule.extend([u] * num_steps)
+
+        # Roll the plan out once, independently of Matplotlib.  Animation
+        # callbacks are not guaranteed to run exactly once per frame (the
+        # first frame may be requested for initialization, for example), so
+        # advancing the simulator from update() makes playback nondeterministic.
+        set_state(simulator, simulator.world.dynamic[0], get_q0)
+        if schedule:
+            apply_u(schedule[0])
+
+        snapshots = [self.world.get_snapshot()]
+        times = [simulator.t]
+
+        for u in schedule:
+            apply_u(u)
+            simulator.t = simulator.step(simulator.t, simulator.dt)
+            snapshots.append(self.world.get_snapshot())
+            times.append(simulator.t)
+
+        # Leave the world at the start of the plan until frames are drawn.
+        self.world.restore(snapshots[0])
+        simulator.t = times[0]
+        simulator.init_variables()
+
+        fig, ax = plt.subplots()
+
+        def draw_frame(frame):
+            self.world.restore(snapshots[frame])
+            simulator.t = times[frame]
+            ax.clear()
+            self._setup_axes(ax, xlim, ylim)
+            self._draw_scene(ax)
+            ax.set_title(f"t = {simulator.t:.2f} s")
+
+        def init():
+            draw_frame(0)
+
+        def update(frame):
+            draw_frame(frame)
+
+        frames = range(1, len(snapshots)) if schedule else [0]
+        ani = FuncAnimation(
+                fig,
+                update,
+                frames=frames,
+                init_func=init,
+                interval=interval,
+                repeat=False,
+                )
+        plt.show()
+        return ani

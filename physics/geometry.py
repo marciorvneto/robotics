@@ -34,6 +34,8 @@ class Vec2:
         x = self.x
         y = self.y
         return Vec2(c * x - s * y, s * x + c * y)
+    def copy(self):
+        return Vec2(self.x, self.y)
     def __repr__(self):
         return f"({self.x:.4f},{self.y:.4f})"
 

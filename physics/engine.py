@@ -42,7 +42,46 @@ class World:
         entt.on_append(self)
     def add_force(self, f):
         self.forces.append(f)
-
+    def get_snapshot(self):
+        snaps = []
+        for e in self.dynamic:
+            snaps.append((
+                "dynamic",
+                e,
+                e.pos.copy(),
+                e.vel.copy(),
+                e.theta,
+                e.ang_vel,
+                ))
+        for f in self.forces:
+            snaps.append((
+                "force",
+                f,
+                f.entt,
+                f.direction,
+                f.position,
+                f.magnitude,
+                f.position_frame,
+                f.direction_frame,
+                ))
+        return snaps
+    def restore(self, snaps):
+        for s in snaps:
+            snap_type, *rest = s
+            if snap_type == "dynamic":
+                e, pos, vel, theta, ang_vel = rest
+                e.pos = pos
+                e.vel = vel
+                e.theta = theta
+                e.ang_vel = ang_vel
+            elif snap_type == "force":
+                f, entt, direction, position, magnitude, position_frame, direction_frame = rest
+                f.entt = entt
+                f.direction = direction
+                f.position = position
+                f.magnitude = magnitude
+                f.position_frame = position_frame
+                f.direction_frame = direction_frame
 
 class Rectangle:
     def __init__(self, m, w, h, pos=Vec2(0,0), vel=Vec2(0,0), theta=0, ang_vel=0):
@@ -76,6 +115,7 @@ class Rectangle:
 
     def __repr__(self):
         angle = np.degrees(self.theta)
+        return f"[Rectangle] ({self.pos.x:.2f},{self.pos.y:.2f},{angle:.2f}deg)"
 
 class Plane:
     def __init__(self, pos=Vec2(0,0), normal=Vec2(0,1)):
@@ -128,13 +168,24 @@ class Simulator:
     def __init__(self, world, dt=0.001):
         self.world = world
         self.dt = dt
+        self.reset(None)
+
+    def reset(self, world_snapshot):
         self.t = 0
         self.accelerations     = []
         self.ang_accelerations = []
+        self.collided = False
+        if world_snapshot:
+            self.world.restore(world_snapshot)
+        self.init_variables()
 
-    def simulate(self, T):
+    def init_variables(self):
         self.accelerations     = [Vec2(0,0) for e in self.world.dynamic]
         self.ang_accelerations = [0 for e in self.world.dynamic]
+        self.collided = False
+
+    def simulate(self, T):
+        init_variables()
         while self.t <= T:
             self.t = self.step(self.t, self.dt)
             print(self.world.dynamic[0])
@@ -184,6 +235,11 @@ class Simulator:
             for c in contacts:
                 self.resolve_contact(c)
 
+        self.correct_penetrations(contacts)
+
+        if len(contacts) > 0:
+            self.collided = True
+
         return t + dt
 
     def resolve_contact(self, c):
@@ -210,6 +266,24 @@ class Simulator:
         impulse       = j * n
         body.vel     += impulse / m
         body.ang_vel += arm.cross(impulse) / Icm
+
+
+    def correct_penetrations(self, contacts):
+        deepest = {}
+
+        for c in contacts:
+            body = c.body
+            depth = c.depth
+            point = c.point
+            if body not in deepest or c.depth > deepest[body].depth:
+                deepest[body] = c 
+
+        slop = 1e-6
+        fraction = 0.9
+
+        for body, c in deepest.items():
+            corr = max(0, c.depth - slop)
+            body.pos += corr * c.normal * fraction
 
 
 
